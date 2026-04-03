@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle2, Circle, RefreshCw, ClipboardList, ChevronDown, ChevronUp, Home, Building, FileText, KeyRound, Download, CloudUpload, User, FileSpreadsheet, Plus, LogOut, LogIn, Trash2, Users } from 'lucide-react';
+import { CheckCircle2, Circle, RefreshCw, ClipboardList, ChevronDown, ChevronUp, Home, Building, FileText, KeyRound, Download, CloudUpload, User, FileSpreadsheet, Plus, LogOut, LogIn, Trash2, Users, Search, Eye, PenTool, Settings, CheckSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { db, auth, signInWithGoogle, logOut } from './firebase';
 import { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { handleFirestoreError, OperationType } from './utils/firestoreErrorHandler';
 
 type Task = {
   id: string;
@@ -14,63 +13,117 @@ type Task = {
   completed: boolean;
 };
 
+type FactorType = 'text' | 'select' | 'checkbox_group';
+
+type Factor = {
+  id: string;
+  title: string;
+  type: FactorType;
+  value: any;
+  options?: string[];
+  placeholder?: string;
+};
+
 type Phase = {
   id: string;
   title: string;
   iconName: string;
   tasks: Task[];
+  factors?: Factor[];
 };
 
 const initialData: Phase[] = [
   {
     id: 'phase-1',
-    title: '1. 申込段階',
-    iconName: 'home',
+    title: '1. 顧客要望・身元確認',
+    iconName: 'user',
+    factors: [
+      { id: 'f1-1', title: '国籍 / ビザ', type: 'select', value: '', options: ['日本国籍', '永住者', '就労ビザ', '留学生', '家族滞在'] },
+      { id: 'f1-2', title: '日本語能力', type: 'select', value: '', options: ['N1-N2 (コミュニケーション問題なし)', 'N3 (日常会話程度)', 'ゼロ (外国語サポート必須)'] },
+      { id: 'f1-3', title: '予算区間', type: 'text', value: '', placeholder: '例：5万円〜7万円/月' },
+      { id: 'f1-4', title: '必須設備・条件', type: 'checkbox_group', value: [], options: ['バストイレ別', 'オートロック', '駐車場必須', 'ペット可', '独立洗面台'] }
+    ],
     tasks: [
-      { id: 't1-1', title: '入居申込', description: '申込書の記入、身分証明書（在留カード/パスポート）の提出', completed: false },
-      { id: 't1-2', title: '保証会社審査', description: '保証会社からの電話連絡確認、正式承認の取得', completed: false },
-      { id: 't1-3', title: '管理会社連絡', description: '管理会社の特約事項、駐車場などの詳細確認', completed: false },
+      { id: 't1-1', title: 'ヒアリング実施', description: '希望条件、引越理由、入居時期の確認', completed: false },
+      { id: 't1-2', title: '身分証コピー取得', description: '在留カード、パスポート等の事前確認', completed: false },
     ]
   },
   {
     id: 'phase-2',
-    title: '2. 準備段階',
-    iconName: 'file-text',
+    title: '2. 物件選定・提案',
+    iconName: 'search',
+    factors: [
+      { id: 'f2-1', title: '初期費用希望', type: 'checkbox_group', value: [], options: ['敷金ゼロ', '礼金ゼロ', 'フリーレント希望', 'ネット無料'] },
+      { id: 'f2-2', title: '資料提示方法', type: 'select', value: '', options: ['管理会社図面 (日本語)', '翻訳版テンプレート', 'VR / 動画案内'] },
+    ],
     tasks: [
-      { id: 't2-1', title: '費用明細作成', description: '日割り家賃、敷金、礼金、仲介手数料、火災保険などの計算', completed: false },
-      { id: 't2-2', title: '明細送付・説明', description: '(重要) お客様へ金額、入金期限（例：26日）の確認', completed: false },
-      { id: 't2-3', title: '重説(重要事項説明)', description: '作成完了、宅建士の記名押印確認、説明日時の予約', completed: false },
-      { id: 't2-4', title: '契約書一式準備', description: '部数の確認、管理規約や特約事項などの添付書類の確認', completed: false },
+      { id: 't2-1', title: '物件資料送付', description: '条件に合う物件を3〜4件ピックアップして送付', completed: false },
+      { id: 't2-2', title: '空室確認', description: '管理会社へ最新の空室状況と外国人入居の可否を確認', completed: false },
     ]
   },
   {
     id: 'phase-3',
-    title: '3. 契約段階',
-    iconName: 'building',
+    title: '3. 内覧準備・現地確認',
+    iconName: 'eye',
+    factors: [
+      { id: 'f3-1', title: '鍵の手配方法', type: 'select', value: '', options: ['現地暗証番号', '管理会社借用', '業者間借用', 'オートロック直接解錠'] },
+      { id: 'f3-2', title: '現地チェック項目', type: 'checkbox_group', value: [], options: ['ゴミ置き場確認', '採光・防音確認', '携帯電波確認', '寸法測定 (カーテン/冷蔵庫)'] },
+    ],
     tasks: [
-      { id: 't3-1', title: '契約金入金確認', description: '期日（例：26日）までにお客様の振込が完了しているか確認', completed: false },
-      { id: 't3-2', title: '必要書類回収', description: '住民票、印影、顔写真、合格通知書など', completed: false },
-      { id: 't3-3', title: '署名・捺印', description: '対面またはIT重説（Zoom）＋郵送', completed: false },
-      { id: 't3-4', title: '保険加入手続き', description: '火災保険のオンライン決済または申込書記入が完了しているか確認', completed: false },
+      { id: 't3-1', title: '内覧予約', description: '管理会社へ内覧予約、鍵の取得方法の確認', completed: false },
+      { id: 't3-2', title: '現地案内', description: 'お客様と待ち合わせ、物件のメリット・デメリットを説明', completed: false },
     ]
   },
   {
     id: 'phase-4',
-    title: '4. 引渡段階',
-    iconName: 'key-round',
+    title: '4. 申込・審査',
+    iconName: 'file-text',
+    factors: [
+      { id: 'f4-1', title: '申込方法', type: 'select', value: '', options: ['WEB電子申込 (ITANDI BB等)', '紙・FAX申込'] },
+      { id: 'f4-2', title: '必要書類', type: 'checkbox_group', value: [], options: ['在留カード', '収入証明 (源泉徴収票等)', '住民票', '内定通知書'] },
+    ],
     tasks: [
-      { id: 't4-1', title: '鍵の引渡し準備', description: '管理会社から鍵を受領（通常は契約日または入居日当日）', completed: false },
-      { id: 't4-2', title: 'ライフライン案内', description: '電気、ガス、水道の開通案内（特にオール電化物件）', completed: false },
-      { id: 't4-3', title: '入居説明', description: 'ゴミ出しルールの説明（倶知安/ニセコ/札幌ルール）、室内チェック表の案内', completed: false },
+      { id: 't4-1', title: '申込書記入', description: 'お客様へ申込書の記入依頼、必要書類の回収', completed: false },
+      { id: 't4-2', title: '保証会社審査', description: '保証会社からの本人確認電話の案内、審査承認の取得', completed: false },
+    ]
+  },
+  {
+    id: 'phase-5',
+    title: '5. 契約・決済',
+    iconName: 'pen-tool',
+    factors: [
+      { id: 'f5-1', title: '契約形態', type: 'select', value: '', options: ['対面契約 (店舗)', 'IT重説 (オンライン)'] },
+      { id: 'f5-2', title: '決済方法', type: 'select', value: '', options: ['銀行振込', 'クレジットカード', '口座振替'] },
+    ],
+    tasks: [
+      { id: 't5-1', title: '費用明細送付', description: '初期費用の計算、請求書の送付', completed: false },
+      { id: 't5-2', title: '重要事項説明', description: '宅建士による重説、契約書の署名捺印', completed: false },
+      { id: 't5-3', title: '契約金入金確認', description: '期日までの着金確認', completed: false },
+    ]
+  },
+  {
+    id: 'phase-6',
+    title: '6. 鍵渡し・入居',
+    iconName: 'key-round',
+    factors: [
+      { id: 'f6-1', title: '鍵の受取', type: 'select', value: '', options: ['管理会社で直接受取', '仲介店舗で受取・手渡し'] },
+      { id: 'f6-2', title: 'ライフライン手配', type: 'select', value: '', options: ['お客様自身で手配', '仲介代行手配'] },
+    ],
+    tasks: [
+      { id: 't6-1', title: '鍵渡し', description: '鍵の引渡し、受領書のサイン', completed: false },
+      { id: 't6-2', title: '入居説明', description: 'ゴミ出しルール、室内チェック表の案内', completed: false },
+      { id: 't6-3', title: '取引台帳作成', description: 'プロジェクト完了、書類のファイリングと保管', completed: false },
     ]
   }
 ];
 
 const renderIcon = (iconName: string) => {
   switch (iconName) {
-    case 'home': return <Home className="w-5 h-5" />;
+    case 'user': return <User className="w-5 h-5" />;
+    case 'search': return <Search className="w-5 h-5" />;
+    case 'eye': return <Eye className="w-5 h-5" />;
     case 'file-text': return <FileText className="w-5 h-5" />;
-    case 'building': return <Building className="w-5 h-5" />;
+    case 'pen-tool': return <PenTool className="w-5 h-5" />;
     case 'key-round': return <KeyRound className="w-5 h-5" />;
     default: return <ClipboardList className="w-5 h-5" />;
   }
@@ -87,9 +140,11 @@ export default function App() {
 
   const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({
     'phase-1': true,
-    'phase-2': true,
-    'phase-3': true,
-    'phase-4': true,
+    'phase-2': false,
+    'phase-3': false,
+    'phase-4': false,
+    'phase-5': false,
+    'phase-6': false,
   });
 
   // Modal states
@@ -225,6 +280,20 @@ export default function App() {
     updatePhases(selectedChecklist.id, newPhases);
   };
 
+  const handleFactorChange = (phaseId: string, factorId: string, newValue: any) => {
+    if (!selectedChecklist) return;
+    const newPhases = selectedChecklist.phases.map((phase: Phase) => {
+      if (phase.id === phaseId && phase.factors) {
+        return {
+          ...phase,
+          factors: phase.factors.map(f => f.id === factorId ? { ...f, value: newValue } : f)
+        };
+      }
+      return phase;
+    });
+    updatePhases(selectedChecklist.id, newPhases);
+  };
+
   const togglePhase = (phaseId: string) => {
     setExpandedPhases(prev => ({
       ...prev,
@@ -234,17 +303,19 @@ export default function App() {
 
   const resetProgress = () => {
     if (!selectedChecklist) return;
-    showConfirm('リセットの確認', 'すべての進捗をリセットしてもよろしいですか？', () => {
+    showConfirm('リセットの確認', 'すべての進捗と設定をリセットしてもよろしいですか？', () => {
       updatePhases(selectedChecklist.id, initialData);
     });
   };
 
   const generateExcelWorkbook = () => {
     if (!selectedChecklist) return null;
-    const data: any[] = [];
+    
+    // Sheet 1: Tasks
+    const taskData: any[] = [];
     selectedChecklist.phases.forEach((phase: Phase) => {
       phase.tasks.forEach(task => {
-        data.push({
+        taskData.push({
           '段階': phase.title,
           'タスク': task.title,
           '状態': task.completed ? '完了' : '未完了',
@@ -252,11 +323,33 @@ export default function App() {
         });
       });
     });
+    const taskSheet = XLSX.utils.json_to_sheet(taskData);
+    taskSheet['!cols'] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 60 }];
     
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    worksheet['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 10 }, { wch: 60 }];
+    // Sheet 2: Factors
+    const factorData: any[] = [];
+    selectedChecklist.phases.forEach((phase: Phase) => {
+      if (phase.factors) {
+        phase.factors.forEach(factor => {
+          let valStr = factor.value;
+          if (Array.isArray(factor.value)) valStr = factor.value.join(', ');
+          factorData.push({
+            '段階': phase.title,
+            '設定項目': factor.title,
+            '選択・入力内容': valStr || ''
+          });
+        });
+      }
+    });
+    const factorSheet = XLSX.utils.json_to_sheet(factorData);
+    factorSheet['!cols'] = [{ wch: 20 }, { wch: 30 }, { wch: 40 }];
+
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "進捗状況");
+    XLSX.utils.book_append_sheet(workbook, taskSheet, "進捗状況(Tasks)");
+    if (factorData.length > 0) {
+      XLSX.utils.book_append_sheet(workbook, factorSheet, "案件詳細(Factors)");
+    }
+    
     return workbook;
   };
 
@@ -510,7 +603,7 @@ export default function App() {
 
               <div className="mt-6">
                 <div className="flex justify-between items-end mb-2">
-                  <span className="text-sm font-medium text-slate-600">全体の進捗</span>
+                  <span className="text-sm font-medium text-slate-600">タスク進捗</span>
                   <span className="text-2xl font-bold text-blue-600">{progressPercentage}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
@@ -527,7 +620,7 @@ export default function App() {
               </div>
             </header>
 
-            <div className="p-8 max-w-3xl mx-auto w-full space-y-6">
+            <div className="p-8 max-w-4xl mx-auto w-full space-y-6">
               {selectedChecklist.phases.map((phase: Phase) => {
                 const phaseCompletedTasks = phase.tasks.filter(t => t.completed).length;
                 const phaseTotalTasks = phase.tasks.length;
@@ -552,7 +645,7 @@ export default function App() {
                         <div>
                           <h2 className="text-lg font-bold text-slate-800">{phase.title}</h2>
                           <p className="text-sm text-slate-500 mt-0.5">
-                            進捗: {phaseCompletedTasks}/{phaseTotalTasks}
+                            タスク進捗: {phaseCompletedTasks}/{phaseTotalTasks}
                           </p>
                         </div>
                       </div>
@@ -577,44 +670,121 @@ export default function App() {
                           transition={{ duration: 0.3, ease: "easeInOut" }}
                           className="overflow-hidden"
                         >
-                          <div className="border-t border-slate-100 px-2 pb-2 pt-1">
-                            {phase.tasks.map((task) => (
-                              <div 
-                                key={task.id}
-                                onClick={() => toggleTask(phase.id, task.id)}
-                                className={`group flex items-start space-x-4 p-3 m-1 rounded-lg cursor-pointer transition-all duration-200 ${
-                                  task.completed 
-                                    ? 'bg-slate-50 hover:bg-slate-100' 
-                                    : 'hover:bg-blue-50/50'
-                                }`}
-                              >
-                                <div className="flex-shrink-0 mt-0.5">
-                                  {task.completed ? (
-                                    <motion.div
-                                      initial={{ scale: 0.8 }}
-                                      animate={{ scale: 1 }}
-                                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                                    >
-                                      <CheckCircle2 className="w-6 h-6 text-green-500" />
-                                    </motion.div>
-                                  ) : (
-                                    <Circle className="w-6 h-6 text-slate-300 group-hover:text-blue-400 transition-colors" />
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className={`text-base font-medium transition-colors duration-200 ${
-                                    task.completed ? 'text-slate-500 line-through' : 'text-slate-800'
-                                  }`}>
-                                    {task.title}
-                                  </p>
-                                  <p className={`text-sm mt-1 transition-colors duration-200 ${
-                                    task.completed ? 'text-slate-400' : 'text-slate-600'
-                                  }`}>
-                                    {task.description}
-                                  </p>
+                          <div className="border-t border-slate-100 px-4 py-4 bg-slate-50/50">
+                            
+                            {/* Factors Section */}
+                            {phase.factors && phase.factors.length > 0 && (
+                              <div className="mb-6 bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
+                                <h4 className="text-sm font-bold text-slate-700 mb-4 flex items-center">
+                                  <Settings className="w-4 h-4 mr-1.5 text-slate-500"/>
+                                  案件詳細設定 (Factors)
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                  {phase.factors.map(factor => (
+                                    <div key={factor.id} className="space-y-2">
+                                      <label className="text-xs font-semibold text-slate-600">{factor.title}</label>
+                                      
+                                      {factor.type === 'text' && (
+                                        <input 
+                                          type="text" 
+                                          value={factor.value || ''} 
+                                          onChange={(e) => handleFactorChange(phase.id, factor.id, e.target.value)} 
+                                          className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-shadow" 
+                                          placeholder={factor.placeholder} 
+                                        />
+                                      )}
+                                      
+                                      {factor.type === 'select' && (
+                                        <select 
+                                          value={factor.value || ''} 
+                                          onChange={(e) => handleFactorChange(phase.id, factor.id, e.target.value)} 
+                                          className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none bg-white transition-shadow"
+                                        >
+                                          <option value="">選択してください</option>
+                                          {factor.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                      )}
+                                      
+                                      {factor.type === 'checkbox_group' && (
+                                        <div className="flex flex-wrap gap-2">
+                                          {factor.options?.map(opt => {
+                                            const isChecked = (factor.value as string[] || []).includes(opt);
+                                            return (
+                                              <label key={opt} className={`flex items-center space-x-1.5 text-xs px-2.5 py-1.5 rounded-md border cursor-pointer transition-colors ${isChecked ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                                <input 
+                                                  type="checkbox" 
+                                                  className="hidden" 
+                                                  checked={isChecked} 
+                                                  onChange={(e) => {
+                                                    const current = factor.value as string[] || [];
+                                                    const next = e.target.checked ? [...current, opt] : current.filter(c => c !== opt);
+                                                    handleFactorChange(phase.id, factor.id, next);
+                                                  }} 
+                                                />
+                                                <div className={`w-3 h-3 rounded-sm border flex items-center justify-center transition-colors ${isChecked ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
+                                                  {isChecked && <CheckCircle2 className="w-2.5 h-2.5 text-white" />}
+                                                </div>
+                                                <span>{opt}</span>
+                                              </label>
+                                            )
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
-                            ))}
+                            )}
+
+                            {/* Tasks Section */}
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center">
+                                <CheckSquare className="w-4 h-4 mr-1.5 text-slate-500"/>
+                                基本タスク (Tasks)
+                              </h4>
+                              <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                                {phase.tasks.map((task, index) => (
+                                  <div 
+                                    key={task.id}
+                                    onClick={() => toggleTask(phase.id, task.id)}
+                                    className={`group flex items-start space-x-4 p-4 cursor-pointer transition-all duration-200 ${
+                                      index !== phase.tasks.length - 1 ? 'border-b border-slate-100' : ''
+                                    } ${
+                                      task.completed 
+                                        ? 'bg-slate-50 hover:bg-slate-100' 
+                                        : 'hover:bg-blue-50/50'
+                                    }`}
+                                  >
+                                    <div className="flex-shrink-0 mt-0.5">
+                                      {task.completed ? (
+                                        <motion.div
+                                          initial={{ scale: 0.8 }}
+                                          animate={{ scale: 1 }}
+                                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                                        >
+                                          <CheckCircle2 className="w-6 h-6 text-green-500" />
+                                        </motion.div>
+                                      ) : (
+                                        <Circle className="w-6 h-6 text-slate-300 group-hover:text-blue-400 transition-colors" />
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-base font-medium transition-colors duration-200 ${
+                                        task.completed ? 'text-slate-500 line-through' : 'text-slate-800'
+                                      }`}>
+                                        {task.title}
+                                      </p>
+                                      <p className={`text-sm mt-1 transition-colors duration-200 ${
+                                        task.completed ? 'text-slate-400' : 'text-slate-600'
+                                      }`}>
+                                        {task.description}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
                           </div>
                         </motion.div>
                       )}
