@@ -92,8 +92,7 @@ const initialData: Phase[] = [
       { id: 'f2-2', title: '資料提示方法', type: 'select', value: '', options: ['管理会社図面 (日本語)', '翻訳版テンプレート', 'VR / 動画案内'] },
     ],
     tasks: [
-      { id: 't2-1', title: '物件資料送付', description: '', completed: false, data: { links: [] } },
-      { id: 't2-2', title: '物件确认', description: '', completed: false, data: { foreignerAllowed: false, notes: '' } },
+      { id: 't2-2', title: '物件選定・確認', description: '問い合わせた物件情報をアーカイブとして記録します', completed: false, data: { properties: [] } },
     ]
   },
   {
@@ -309,7 +308,11 @@ export default function App() {
             const mergedTasks = initialPhase.tasks.map(initialTask => {
               const existing = existingTasks.find((t: Task) => t.id === initialTask.id);
               if (existing) {
-                return { ...initialTask, completed: existing.completed };
+                return { 
+                  ...initialTask, 
+                  completed: existing.completed,
+                  data: existing.data ? { ...initialTask.data, ...existing.data } : initialTask.data
+                };
               }
               return initialTask;
             });
@@ -455,30 +458,47 @@ export default function App() {
     });
   };
 
-  const handleAddLink = (phaseId: string, taskId: string, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && e.currentTarget.value.trim() !== '') {
-      e.preventDefault();
-      const value = e.currentTarget.value.trim();
-      const phase = selectedChecklist?.phases.find((p: Phase) => p.id === phaseId);
-      const task = phase?.tasks.find((t: Task) => t.id === taskId);
-      if (!task) return;
+  const handleAddProperty = (phaseId: string, taskId: string) => {
+    const phase = selectedChecklist?.phases.find((p: Phase) => p.id === phaseId);
+    const task = phase?.tasks.find((t: Task) => t.id === taskId);
+    if (!task) return;
 
-      const currentData = task.data || { links: [] };
-      const newLinks = [...(currentData.links || []), { id: Date.now().toString(), url: value }];
-      
-      handleTaskDataChange(phaseId, taskId, { ...currentData, links: newLinks });
-      e.currentTarget.value = '';
-    }
+    const newProperty = {
+      id: Date.now().toString(),
+      managementCompany: '',
+      apartmentName: '',
+      roomNumber: '',
+      foreignerAllowed: false,
+      requiredDocs: [],
+      notes: ''
+    };
+
+    const currentData = task.data || { properties: [] };
+    const newProperties = [...(currentData.properties || []), newProperty];
+    
+    handleTaskDataChange(phaseId, taskId, { ...currentData, properties: newProperties });
   };
 
-  const handleRemoveLink = (phaseId: string, taskId: string, linkId: string) => {
+  const handleUpdateProperty = (phaseId: string, taskId: string, propertyId: string, field: string, value: any) => {
+    const phase = selectedChecklist?.phases.find((p: Phase) => p.id === phaseId);
+    const task = phase?.tasks.find((t: Task) => t.id === taskId);
+    if (!task || !task.data || !task.data.properties) return;
+
+    const newProperties = task.data.properties.map((prop: any) => 
+      prop.id === propertyId ? { ...prop, [field]: value } : prop
+    );
+    
+    handleTaskDataChange(phaseId, taskId, { ...task.data, properties: newProperties });
+  };
+
+  const handleRemoveProperty = (phaseId: string, taskId: string, propertyId: string) => {
     if (!selectedChecklist) return;
     const phase = selectedChecklist.phases.find((p: Phase) => p.id === phaseId);
     const task = phase?.tasks.find((t: Task) => t.id === taskId);
-    if (!task || !task.data || !task.data.links) return;
+    if (!task || !task.data || !task.data.properties) return;
 
-    const newLinks = task.data.links.filter((l: any) => l.id !== linkId);
-    handleTaskDataChange(phaseId, taskId, { ...task.data, links: newLinks });
+    const newProperties = task.data.properties.filter((p: any) => p.id !== propertyId);
+    handleTaskDataChange(phaseId, taskId, { ...task.data, properties: newProperties });
   };
 
   const toggleTask = (phaseId: string, taskId: string) => {
@@ -1068,54 +1088,98 @@ export default function App() {
                                       <h5 className={`text-sm sm:text-base font-bold mb-1 transition-colors ${task.completed ? 'text-slate-500 line-through' : 'text-slate-700 group-hover:text-blue-700'}`}>
                                         {task.title}
                                       </h5>
-                                      {task.id === 't2-1' ? (
-                                        <div className="mt-2" onClick={e => e.stopPropagation()}>
-                                          <input 
-                                            type="text"
-                                            className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
-                                            placeholder="物件名やURLを入力してEnterを押す..."
-                                            onKeyDown={(e) => handleAddLink(phase.id, task.id, e)}
-                                          />
-                                          <div className="mt-3 space-y-2">
-                                            {task.data?.links?.map((link: any) => {
-                                              const isUrl = link.url.startsWith('http://') || link.url.startsWith('https://');
-                                              return (
-                                                <div key={link.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 p-2 rounded-md group">
-                                                  <div className="flex items-center space-x-2 overflow-hidden">
-                                                    <LinkIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                                                    {isUrl ? (
-                                                      <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline truncate">
-                                                        {link.url}
-                                                      </a>
-                                                    ) : (
-                                                      <span className="text-sm text-slate-700 truncate">{link.url}</span>
-                                                    )}
-                                                  </div>
-                                                  <button onClick={() => handleRemoveLink(phase.id, task.id, link.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <X className="w-4 h-4" />
-                                                  </button>
+                                      {task.id === 't2-2' ? (
+                                        <div className="mt-3 space-y-4" onClick={e => e.stopPropagation()}>
+                                          {task.data?.properties?.map((property: any, index: number) => (
+                                            <div key={property.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm relative group">
+                                              <button 
+                                                onClick={() => handleRemoveProperty(phase.id, task.id, property.id)}
+                                                className="absolute top-2 right-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                              >
+                                                <X className="w-4 h-4" />
+                                              </button>
+                                              
+                                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                                                <div>
+                                                  <label className="block text-xs font-medium text-slate-500 mb-1">管理会社名</label>
+                                                  <input 
+                                                    type="text" 
+                                                    className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
+                                                    placeholder="例: 〇〇不動産"
+                                                    value={property.managementCompany || ''}
+                                                    onChange={(e) => handleUpdateProperty(phase.id, task.id, property.id, 'managementCompany', e.target.value)}
+                                                  />
                                                 </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      ) : task.id === 't2-2' ? (
-                                        <div className="mt-2" onClick={e => e.stopPropagation()}>
-                                          <label className="flex items-center space-x-2 cursor-pointer p-2 hover:bg-slate-50 rounded-md transition-colors border border-transparent hover:border-slate-200">
-                                            <input 
-                                              type="checkbox" 
-                                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                              checked={task.data?.foreignerAllowed || false}
-                                              onChange={(e) => handleTaskDataChange(phase.id, task.id, { ...task.data, foreignerAllowed: e.target.checked })}
-                                            />
-                                            <span className="text-sm text-slate-700 font-medium">外国人入居可否</span>
-                                          </label>
-                                          <textarea 
-                                            className="w-full mt-2 text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-shadow resize-y min-h-[60px]"
-                                            placeholder="その他の確認事項（空室状況、内見方法など）"
-                                            value={task.data?.notes || ''}
-                                            onChange={(e) => handleTaskDataChange(phase.id, task.id, { ...task.data, notes: e.target.value })}
-                                          />
+                                                <div>
+                                                  <label className="block text-xs font-medium text-slate-500 mb-1">物件名</label>
+                                                  <input 
+                                                    type="text" 
+                                                    className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
+                                                    placeholder="例: メゾン〇〇"
+                                                    value={property.apartmentName || ''}
+                                                    onChange={(e) => handleUpdateProperty(phase.id, task.id, property.id, 'apartmentName', e.target.value)}
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <label className="block text-xs font-medium text-slate-500 mb-1">号室</label>
+                                                  <input 
+                                                    type="text" 
+                                                    className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
+                                                    placeholder="例: 201"
+                                                    value={property.roomNumber || ''}
+                                                    onChange={(e) => handleUpdateProperty(phase.id, task.id, property.id, 'roomNumber', e.target.value)}
+                                                  />
+                                                </div>
+                                              </div>
+
+                                              <div className="bg-slate-50 p-3 rounded-md border border-slate-200 space-y-3 mb-3">
+                                                <p className="text-xs font-bold text-slate-500">必要書類・条件</p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                  <label className="flex items-center space-x-2 cursor-pointer p-1.5 hover:bg-slate-100 rounded transition-colors">
+                                                    <input 
+                                                      type="checkbox" 
+                                                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                                      checked={property.foreignerAllowed || false}
+                                                      onChange={(e) => handleUpdateProperty(phase.id, task.id, property.id, 'foreignerAllowed', e.target.checked)}
+                                                    />
+                                                    <span className="text-sm text-slate-700">外国人入居可</span>
+                                                  </label>
+                                                  {['在留カード', '日本国籍の緊急連絡先', '連帯保証人'].map(doc => (
+                                                    <label key={doc} className="flex items-center space-x-2 cursor-pointer p-1.5 hover:bg-slate-100 rounded transition-colors">
+                                                      <input 
+                                                        type="checkbox" 
+                                                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                                        checked={property.requiredDocs?.includes(doc) || false}
+                                                        onChange={(e) => {
+                                                          const currentDocs = property.requiredDocs || [];
+                                                          const newDocs = e.target.checked 
+                                                            ? [...currentDocs, doc] 
+                                                            : currentDocs.filter((d: string) => d !== doc);
+                                                          handleUpdateProperty(phase.id, task.id, property.id, 'requiredDocs', newDocs);
+                                                        }}
+                                                      />
+                                                      <span className="text-sm text-slate-700">{doc}</span>
+                                                    </label>
+                                                  ))}
+                                                </div>
+                                              </div>
+
+                                              <textarea 
+                                                className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition-shadow resize-y min-h-[60px]"
+                                                placeholder="その他の確認事項（空室状況、内見方法など）"
+                                                value={property.notes || ''}
+                                                onChange={(e) => handleUpdateProperty(phase.id, task.id, property.id, 'notes', e.target.value)}
+                                              />
+                                            </div>
+                                          ))}
+                                          
+                                          <button 
+                                            onClick={() => handleAddProperty(phase.id, task.id)}
+                                            className="w-full py-2 border-2 border-dashed border-slate-300 text-slate-500 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-colors flex items-center justify-center space-x-2 text-sm font-medium"
+                                          >
+                                            <Plus className="w-4 h-4" />
+                                            <span>物件を追加してアーカイブ</span>
+                                          </button>
                                         </div>
                                       ) : (
                                         <p className={`text-xs sm:text-sm transition-colors ${task.completed ? 'text-slate-400' : 'text-slate-500'}`}>
